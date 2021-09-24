@@ -30,6 +30,7 @@
 # Run msvs-detect in opam
 # $1 = arch (x86_64 or x86_32)
 # $2 = name of .config file to write (without the .config)
+# $3 = output directory for symlinks
 
 # Parse $1 - $arch will be suitable for msvs-detect --arch=
 case "$1" in
@@ -66,9 +67,22 @@ else
   ./msvs-detect --arch=$arch --output=data > $key.cache
 fi
 
+cat > install <<"EOF"
+#!/usr/bin/env bash
+export CYGWIN=winsymlinks:nativestrict
+EOF
+
 # Create the .config and .install files
 echo 'opam-version: "2.0"' > "$config"
 echo 'variables {' >> "$config"
+
+export CYGWIN=winsymlinks:nativestrict
+if ln -sfT install install.tmp 2>/dev/null; then
+  rm -f install.tmp
+  symlinks=1
+else
+  symlinks=0
+fi
 
 current=''
 script=''
@@ -81,13 +95,22 @@ do
       echo '"' >> "$config"
     fi
     echo -n "  msvs-$tag: \"" >> "$config"
+    if ((symlinks)); then
+      echo "mkdir -p \"$3/$tag\"" >> install
+    fi
     current="$tag"
     i=1
   else
     echo -n ';' >> "$config"
   fi
   if [[ -n $current ]]; then
-    target="$entry"
+    if ((symlinks)); then
+      target="$3\\$tag\\$i"
+      ((i++))
+      echo "ln -sfT '${entry//\'/\'\"\'\"\'}' '$target'" >> install
+    else
+      target="$entry"
+    fi
     target="${target//\\/\\\\}"
     target="${target//%/%%}"
     echo -n "$target" >> "$config"

@@ -6,7 +6,10 @@ homepage: "https://github.com/metastack/msvs-tools#readme"
 dev-repo: "git+https://github.com/metastack/msvs-tools.git"
 bug-reports: "https://github.com/metastack/msvs-tools/issues"
 build: [
-  [ "bash" "./msvs-opam" arch name ]
+  [ "bash" "./msvs-opam" arch _:share name _:share ]
+]
+install: [
+  [ "bash" "./install" ]
 ]
 setenv: [
   [PATH += "%{_:msvs-bin}%"]
