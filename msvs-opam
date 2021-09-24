@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+# ################################################################################################ #
+# David Allsopp Ltd.                                                                               #
+# ################################################################################################ #
+# Microsoft C Compiler Environment Detection Script                                                #
+# ################################################################################################ #
+# Copyright (c) 2021, 2022, 2023, 2024 David Allsopp Ltd.                                          #
+# ################################################################################################ #
+# Author: David Allsopp                                                                            #
+# 24-Sep-2021                                                                                      #
+# ################################################################################################ #
+# Redistribution and use in source and binary forms, with or without modification, are permitted   #
+# provided that the following two conditions are met:                                              #
+#     1. Redistributions of source code must retain the above copyright notice, this list of       #
+#        conditions and the following disclaimer.                                                  #
+#     2. Neither the name of MetaStack Solutions Ltd. nor the names of its contributors may be     #
+#        used to endorse or promote products derived from this software without specific prior     #
+#        written permission.                                                                       #
+#                                                                                                  #
+# This software is provided by the Copyright Holder 'as is' and any express or implied warranties  #
+# including, but not limited to, the implied warranties of merchantability and fitness for a       #
+# particular purpose are disclaimed. In no event shall the Copyright Holder be liable for any      #
+# direct, indirect, incidental, special, exemplary, or consequential damages (including, but not   #
+# limited to, procurement of substitute goods or services; loss of use, data, or profits; or       #
+# business interruption) however caused and on any theory of liability, whether in contract,       #
+# strict liability, or tort (including negligence or otherwise) arising in any way out of the use  #
+# of this software, even if advised of the possibility of such damage.                             #
+# ################################################################################################ #
+
+# Run msvs-detect in opam
+# $1 = arch (x86_64 or x86_32)
+# $2 = name of .config file to write (without the .config)
+
+# Parse $1 - $arch will be suitable for msvs-detect --arch=
+case "$1" in
+  x86_64) arch='x64';;
+  x86_32) arch='x86';;
+  *)
+    echo "Unsupported or unrecognised architecture: $1">&2
+    exit 2;;
+esac
+
+# The checksum of both $MSVS_PREFERENCE and the output of msvs-detect --installed is used to
+# short-circuit the comparatively expensive call to Visual Studio batch files.
+config="$2.config"
+key="$({ echo "$MSVS_PREFERENCE"; \
+         ./msvs-detect --installed | LC_ALL=C sort; } | md5sum | cut -f1 -d' ')"
+
+# Setting OPAMVAR_msvs_detect_nocache allows the caching to be ignored.
+cached_result=''
+if [[ -z $OPAMVAR_msvs_detect_nocache ]]; then
+  # Search global opam switches for previous cached values
+  while IFS= read -r dir ; do
+    cache_file="$dir/share/msvs-detect/$key.cache"
+    if [[ -e $cache_file ]]; then
+      cached_result="$cache_file"
+      break
+    fi
+  done < <(find "$OPAMROOT" -maxdepth 1 -mindepth 1 -type d)
+fi
+
+# If a cached result was found, use it; otherwise call msvs-detect
+if [[ -n $cached_result ]]; then
+  cat "$cached_result" > $key.cache
+else
+  ./msvs-detect --arch=$arch --output=data > $key.cache
+fi
+
+# Create the .config and .install files
+echo 'opam-version: "2.0"' > "$config"
+echo 'variables {' >> "$config"
+
+current=''
+script=''
+while IFS='*' read -r tag entry
+do
+  if [[ -z $script ]]; then
+    script="$tag"
+  elif [[ $current != $tag ]]; then
+    if [[ -n $current ]]; then
+      echo '"' >> "$config"
+    fi
+    echo -n "  msvs-$tag: \"" >> "$config"
+    current="$tag"
+    i=1
+  else
+    echo -n ';' >> "$config"
+  fi
+  if [[ -n $current ]]; then
+    target="$entry"
+    target="${target//\\/\\\\}"
+    target="${target//%/%%}"
+    echo -n "$target" >> "$config"
+  fi
+done < <(cat $key.cache)
+
+echo '"' >> "$config"
+
+echo '}' >> "$config"
+
+echo "share: [\"$key.cache\"]" > "$2.install"

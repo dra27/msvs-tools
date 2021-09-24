@@ -1,1 +1,6 @@
 *.swp
+install
+clone-from
+msvs-detect.config
+msvs-detect.install
+*.cache
