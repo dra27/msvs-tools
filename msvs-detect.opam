@@ -6,10 +6,13 @@ homepage: "https://github.com/metastack/msvs-tools#readme"
 dev-repo: "git+https://github.com/metastack/msvs-tools.git"
 bug-reports: "https://github.com/metastack/msvs-tools/issues"
 build: [
-  [ "bash" "./msvs-opam" arch _:share name _:share ]
+  [ "sh" "-c" "bash ./msvs-opam '%{arch}%' '%{name}%'" ]
 ]
 install: [
-  [ "bash" "./install" ]
+  [ "sh" "-c" "bash ./install" ]
+]
+build-env: [
+  [MSVS_SHARE = "%{_:share}%"]
 ]
 setenv: [
   [PATH += "%{_:msvs-bin}%"]
@@ -18,6 +21,7 @@ setenv: [
 ]
 x-env-path-rewrite: [
   [ PATH false ]
+  [ MSVS_SHARE ";" "host" ]
 ]
 available: os = "win32" | os = "cygwin"
 flags: compiler

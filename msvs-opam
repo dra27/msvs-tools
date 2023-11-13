@@ -30,7 +30,7 @@
 # Run msvs-detect in opam
 # $1 = arch (x86_64 or x86_32)
 # $2 = name of .config file to write (without the .config)
-# $3 = output directory for symlinks
+# $MSVS_SHARE = output directory for symlinks
 
 # Parse $1 - $arch will be suitable for msvs-detect --arch=
 case "$1" in
@@ -96,7 +96,7 @@ do
     fi
     echo -n "  msvs-$tag: \"" >> "$config"
     if ((symlinks)); then
-      echo "mkdir -p \"$3/$tag\"" >> install
+      echo "mkdir -p \"$MSVS_SHARE/$tag\"" >> install
     fi
     current="$tag"
     i=1
@@ -105,7 +105,7 @@ do
   fi
   if [[ -n $current ]]; then
     if ((symlinks)); then
-      target="$3\\$tag\\$i"
+      target="$MSVS_SHARE\\$tag\\$i"
       ((i++))
       echo "ln -sfT '${entry//\'/\'\"\'\"\'}' '$target'" >> install
     else
