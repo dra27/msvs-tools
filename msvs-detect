@@ -167,7 +167,7 @@ check_environment ()
 # value (i.e. no change) is output.
 output ()
 {
-  if [[ $3 = "$ENV_ARCH" ]] ; then
+  if [[ $3 = "$ENV_ARCH" && -z $4 ]] ; then
     VALUE=
   else
     VALUE=$2
@@ -180,13 +180,13 @@ output ()
       echo "$1=${VALUE//\$/\$\$}";;
     2)
       case $1 in
-        MSVS_PATH)
+        MSVS*_PATH)
           prefix='bin';;
-        MSVS_INC)
+        MSVS*_INC)
           prefix='inc';;
-        MSVS_LIB)
+        MSVS*_LIB)
           prefix='lib';;
-        MSVS_ML)
+        MSVS*_ML)
           prefix='asm';;
         *)
           echo Internal fault "$1">&2
@@ -194,7 +194,7 @@ output ()
       esac
       while IFS= read -r entry; do
         if [[ -n $entry ]] ; then
-          echo "$prefix*$entry"
+          echo "$3+$prefix*$entry"
         fi
       done <<< "${VALUE//;/$'\n'}"
       ;;
@@ -362,9 +362,6 @@ if [[ $MODE -eq 1 ]] ; then
   fi
   MSVS_PREFERENCE=
   SCAN_ENV=1
-elif [[ $OUTPUT -eq 2 && -z $TARGET_ARCH ]] ; then
-  echo "$0: --output=data requires --arch">&2
-  exit 2
 elif [[ -z ${MSVS_PREFERENCE+x} ]] ; then
   MSVS_PREFERENCE='@;VS17.*;VS16.*;VS15.*;VS14.0;VS12.0;VS11.0;10.0;9.0;8.0;7.1;7.0'
 fi
@@ -1068,6 +1065,7 @@ for i in "${TEST[@]}" ; do
     if check_environment "${MSVS_PATH//:/*}" "${MSVS_INC//;/*}" "${MSVS_LIB//;/*}" "$i" "$arch" ; then
       # Put the package back into FOUND, but augmented with the architecture name and with the
       # derived values.
+      debug "Stored $i-$arch"
       FOUND["$i-$arch"]="${CURRENT%)} [\"MSVS_PATH\"]=\"$MSVS_PATH\" \
                                       [\"MSVS_PATH_WIN32\"]=\"$MSVS_PATH_WIN32\" \
                                       [\"MSVS_INC\"]=\"$MSVS_INC\" \
@@ -1120,7 +1118,11 @@ for i in "${TEST[@]}" ; do
   # a cunning (and hopefully not too "You are not expected to understand this" way) such that $PREF
   # will always equal $i, unless $PREF = "@".
   if [[ $PREF = "$i" ]] ; then
-    # In which case, check that the architecture(s)s were found
+    # Record the first solution found as a "weak" match
+    if [[ -z $SOLUTION ]] ; then
+      SOLUTION=$i
+    fi
+    # In which case, check that the architecture(s) were found
     if [[ -n ${FOUND["$i-$LEFT_ARCH"]+x} && -n ${FOUND["$i-$RIGHT_ARCH"]+x} ]] ; then
       debug "Solved TARGET_ARCH=$TARGET_ARCH with $i"
       SOLUTION=$i
@@ -1147,6 +1149,7 @@ declare -A FLIP
 FLIP=(["x86"]="x64" ["x64"]="x86")
 
 if [[ $MODE -eq 0 ]] ; then
+  found=-1
   if [[ $PREF = "@" && -n ${ENV_COMPILER} ]] ; then
     SOLUTION=${ENV_COMPILER%-"$ENV_ARCH"}
     # If --arch wasn't specified, then ensure that the other architecture was also found. If --arch
@@ -1155,22 +1158,35 @@ if [[ $MODE -eq 0 ]] ; then
     if [[ -n ${FOUND["$SOLUTION-${FLIP[$ENV_ARCH]}"]+x} ||
           -n ${FOUND["$SOLUTION-$TARGET_ARCH"]+x} ]] ; then
       debug "Solved with $SOLUTION"
+      found=1
     else
-      unset SOLUTION
-      unset ENV_ARCH
+      # We can't find the matching half of the environment compiler, but this will do if we can't
+      # any better further down the preference.
+      found=0
     fi
   fi
 
-  if [[ -z ${SOLUTION+x} ]] ; then
+  if [[ $found -lt 1 ]] ; then
     ((pref++))
-    debug "Search remaining: ${PREFERENCE[*]}"
+    debug "Search remaining: ${PREFERENCE[@]:$pref} (current SOLUTION=$SOLUTION)"
     for i in "${PREFERENCE[@]:$pref}" ; do
-      if [[ -n ${FOUND["$i-$LEFT_ARCH"]+x} && -n ${FOUND["$i-$RIGHT_ARCH"]+x} ]] ; then
-        debug "Solved TARGET_ARCH='$TARGET_ARCH' with $i"
+      if [[ -n ${FOUND["$i-$LEFT_ARCH"]+x} ]] ; then
+        found=1
         SOLUTION=$i
-        break
+        if [[ -n ${FOUND["$i-$RIGHT_ARCH"]+x} ]] ; then
+          debug "Solved TARGET_ARCH='$TARGET_ARCH' with $i"
+          break
+        fi
+      elif [[ -n ${FOUND["$i-$RIGHT_ARCH"]+x} ]] ; then
+        found=1
+        SOLUTION=$i
       fi
     done
+  fi
+
+  if [[ $found -eq 0 ]] ; then
+    TARGET_ARCH=$ENV_ARCH
+    LEFT_ARCH=$ENV_ARCH
   fi
 fi
 
@@ -1200,21 +1216,26 @@ if [[ -n $SOLUTION ]] ; then
     output MSVS_PATH "${COMPILER["MSVS_PATH"]}" $LEFT_ARCH
   else
     echo "${COMPILER["DISPLAY"]} (${COMPILER["VERSION"]})"
-    echo "cmd*${COMPILER["SETENV"]} ${COMPILER["SETENV_SWITCHES"]}"
+    echo "$LEFT_ARCH+cmd*${COMPILER["SETENV"]} ${COMPILER["SETENV_SWITCHES"]}"
     output MSVS_PATH "${COMPILER["MSVS_PATH_WIN32"]}" $LEFT_ARCH
   fi
   output MSVS_INC "${COMPILER["MSVS_INC"]}" $LEFT_ARCH
   output MSVS_LIB "${COMPILER["MSVS_LIB"]}" $LEFT_ARCH
   if [[ $ML_REQUIRED -eq 1 ]] ; then
-    output MSVS_ML "${COMPILER["ASSEMBLER"]%.exe}" always
+    output MSVS_ML "${COMPILER["ASSEMBLER"]%.exe}" $LEFT_ARCH always
   fi
   if [[ -z $TARGET_ARCH ]] ; then
     eval "COMPILER=${FOUND["$SOLUTION-$RIGHT_ARCH"]}"
-    output MSVS64_PATH "${COMPILER["MSVS_PATH"]}" $RIGHT_ARCH
+    if [[ $OUTPUT -ne 2 ]] ; then
+      output MSVS64_PATH "${COMPILER["MSVS_PATH"]}" $RIGHT_ARCH
+    else
+      echo "$RIGHT_ARCH+cmd*${COMPILER["SETENV"]} ${COMPILER["SETENV_SWITCHES"]}"
+      output MSVS64_PATH "${COMPILER["MSVS_PATH_WIN32"]}" $RIGHT_ARCH
+    fi
     output MSVS64_INC "${COMPILER["MSVS_INC"]}" $RIGHT_ARCH
     output MSVS64_LIB "${COMPILER["MSVS_LIB"]}" $RIGHT_ARCH
     if [[ $ML_REQUIRED -eq 1 ]] ; then
-      output MSVS64_ML "${COMPILER["ASSEMBLER"]%.exe}" always
+      output MSVS64_ML "${COMPILER["ASSEMBLER"]%.exe}" $RIGHT_ARCH always
     fi
   fi
   exit 0
