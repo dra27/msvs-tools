@@ -28,7 +28,7 @@
 # ################################################################################################ #
 
 # Run msvs-detect in opam
-# $1 = arch (x86_64 or x86_32)
+# $1 = arch (x86_64, arm64 or x86_32)
 # $2 = name of package
 # $3 = location of msvs-detect
 
@@ -48,7 +48,7 @@ generate ()
   #   msvs-bin, msvs-inc, msvs-lib - literal values to add to PATH, INCLUDE and LIB
   #   package - description of the Visual Studio package providing the compiler
   #   script - the script msvs-detect analysed for these results
-  #   ml - the basename of assembler (usually ml or x86 and ml64 for x64)
+  #   ml - the basename of assembler (usually ml for x86, ml64 for x64 and armasm64 for arm64)
   echo 'variables {' >> "$package.config"
 
   # If an environment compiler is being used, there won't be any entries for bin, inc and lib. The
@@ -204,7 +204,7 @@ EOF
 
 # Check $arch (msvs-detect's --arch intentionally accepts opam's architecture strings)
 case "$arch" in
-  x86_64|x86_32) ;;
+  x86_64|x86_32|arm64) ;;
   *)
     echo "Unsupported or unrecognised architecture: $arch">&2
     exit 2;;
