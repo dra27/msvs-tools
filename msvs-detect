@@ -139,8 +139,12 @@ check_environment ()
     return 1
   fi
 
-  ASSEMBLER=ml${5#x}
-  ASSEMBLER=${ASSEMBLER%86}.exe
+  if [[ $5 -eq arm64 ]]; then
+    ASSEMBLER=armasm64.exe
+  else
+    ASSEMBLER=ml${5#x}
+    ASSEMBLER=${ASSEMBLER%86}.exe
+  fi
   if [[ $ML_REQUIRED -eq 1 ]] ; then
     RET=0
     find_in "$1" "$ASSEMBLER"
@@ -293,6 +297,8 @@ if [[ $# -gt 0 ]] ; then
             TARGET_ARCH=x86;;
           64|x64|x86_64)
             TARGET_ARCH=x64;;
+          arm64|aarch64)
+            TARGET_ARCH=arm64;;
           *)
             echo "$0: unrecognised option for $1: '$2'">&2
             exit 2
@@ -303,6 +309,9 @@ if [[ $# -gt 0 ]] ; then
         shift;;
       -x64|-xx64|-xx86_64|--arch=x64|--arch=64|--arch=x86_64)
         TARGET_ARCH=x64
+        shift;;
+      -xarm64|-xaarch64|--arch=arm64|--arch=aarch64)
+        TARGET_ARCH=arm64
         shift;;
       -x*)
         echo "$0: unrecognised option for -x: '${1#-x}'">&2
@@ -394,8 +403,8 @@ case $MODE in
     echo
     echo "Options:"
     echo "  -a, --all            Display all available compiler packages"
-    echo "  -x, --arch=ARCH      Only consider packages for ARCH (x86 or x64). Default is"
-    echo "                       to return packages containing both architectures"
+    echo "  -x, --arch=ARCH      Only consider packages for ARCH (x86, x64 or arm64)."
+    echo "                       Default is to return packages containing x86 and x64"
     echo "  -d, --debug[=LEVEL]  Set debug messages level"
     echo "  -h, --help           Display this help screen"
     echo "  -i, --installed      Display all detected compiler packages; similarly to --all,"
@@ -595,6 +604,8 @@ if [[ $SCAN_ENV -eq 1 ]] ; then
         ENV_ARCH=x64;;
       80x86|x86)
         ENV_ARCH=x86;;
+      ARM64)
+        ENV_ARCH=arm64;;
       *)
         echo "Unable to identify C compiler architecture from '${ENV_ARCH#* for }'">&2
         echo "Environment C compiler discarded">&2
@@ -792,7 +803,8 @@ if [[ -x $VSWHERE ]] ; then
           if [[ $MODE -eq 2 ]]; then
             INSTANCE_VER="$INSTANCE_VER-$INSTANCE"
           fi
-          FOUND+=(["VS$INSTANCE_VER"]="([\"DISPLAY\"]=\"$INSTANCE_NAME\" [\"VERSION\"]=\"$INSTANCE_FULL_VER\" [\"ARCH\"]=\"x86 x64\" [\"SETENV\"]=\"$INSTANCE_PATH\\VC\\Auxiliary\\Build\\vcvarsall.bat\" [\"SETENV_RELEASE\"]=\"\")")
+          # XXX The ARCH list may need to be done more intelligently here (unless it's simply ignored in older scripts?)
+          FOUND+=(["VS$INSTANCE_VER"]="([\"DISPLAY\"]=\"$INSTANCE_NAME\" [\"VERSION\"]=\"$INSTANCE_FULL_VER\" [\"ARCH\"]=\"x86 x64 arm64\" [\"SETENV\"]=\"$INSTANCE_PATH\\VC\\Auxiliary\\Build\\vcvarsall.bat\" [\"SETENV_RELEASE\"]=\"\")")
         else
           warning "vcvarsall.bat not found for $INSTANCE"
         fi;;
@@ -1017,6 +1029,7 @@ for i in "${TEST[@]}" ; do
     if [[ -n $LIB_KEY ]]; then
       unset_keys+=(-u "$LIB_KEY")
     fi
+    debug "Inspecting with $(basename "$SCRIPT") $ARCH_SWITCHES$SCRIPT_SWITCHES"
     while IFS= read -r line; do
       case $num in
         0)
@@ -1035,7 +1048,7 @@ for i in "${TEST[@]}" ; do
           fi;;
       esac
       ((num++))
-    done < <(env "${unset_keys[@]}" PATH="?msvs-detect?:$DIR:/usr/bin:$TEST_PATH" \
+    done < <(env "${unset_keys[@]}" PATH="?msvs-detect?:$DIR:/usr/bin:$TEST_PATH:?tceted-svsm?" \
                  EXEC_SCRIPT="$(basename "$SCRIPT") $ARCH_SWITCHES$SCRIPT_SWITCHES" \
                  MSYS2_ARG_CONV_EXCL='*' \
              "$(cygpath "$COMSPEC")" /d /v:on /c "$COMMAND" 2>/dev/null | grep -F XMARKER -A 6 | tr -d '\015' | tail -6)
@@ -1050,11 +1063,11 @@ for i in "${TEST[@]}" ; do
     fi
 
     if [[ -n $MSVS_PATH ]] ; then
-      MSVS_PATH_WIN32="${MSVS_PATH/?msvs-detect?*/}"
+      MSVS_PATH_WIN32="${MSVS_PATH/?msvs-detect?*?tceted-svsm?/}"
       # Translate MSVS_PATH back to Cygwin notation (/cygdrive, etc. and colon-separated)
       MSVS_PATH=$(cygpath "$MSVS_PATH" -p)
       # Remove any trailing / from elements of MSVS_PATH
-      MSVS_PATH=$(echo "$MSVS_PATH" | sed -e 's|\([^:]\)/\+\(:\|$\)|\1\2|g;s/?msvs-detect?.*//')
+      MSVS_PATH=$(echo "$MSVS_PATH" | sed -e 's|\([^:]\)/\+\(:\|$\)|\1\2|g;s/?msvs-detect?.*?tceted-svsm?//')
       # Guarantee that MSVS_PATH ends with a single :
       MSVS_PATH="${MSVS_PATH%%:}:"
     fi
